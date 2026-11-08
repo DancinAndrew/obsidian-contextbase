@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.contextbase/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.env
+.env.*
+.DS_Store
