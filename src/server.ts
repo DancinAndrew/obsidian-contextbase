@@ -5,7 +5,9 @@
 //   CONTEXTBASE_VAULT      folder that receives `Agent Memory/` notes
 //   CONTEXTBASE_TOOLS      comma list of tools to register, default "search,save"
 //   CONTEXTBASE_CANARY     "1" adds head and tail canaries to the instructions
+//   CONTEXTBASE_SAVE_DENY  comma list of words; a memory that mentions one of them is refused
 //   CONTEXTBASE_PROBE_LOG  file that receives the wire log (see probe.ts)
+//   CONTEXTBASE_PROBE_REDACT  "1" records tool arguments as their shape only
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,9 +16,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { buildInstructions } from "./instructions.ts";
-import { describeEnv, probe, tapTransport } from "./probe.ts";
+import { describeArgs, describeEnv, probe, tapTransport } from "./probe.ts";
 
 const vault = process.env.CONTEXTBASE_VAULT;
+const saveDeny = (process.env.CONTEXTBASE_SAVE_DENY ?? "")
+  .split(",")
+  .map((word) => word.trim())
+  .filter(Boolean);
 const enabledTools = new Set(
   (process.env.CONTEXTBASE_TOOLS ?? "search,save").split(",").map((name) => name.trim()),
 );
@@ -91,7 +97,7 @@ if (enabledTools.has("search")) {
     async ({ query, kind, limit }, extra) => {
       probe("tool-call", {
         tool: "search",
-        args: { query, kind, limit },
+        args: describeArgs({ query, kind, limit }),
         meta: extra._meta,
         sessionId: extra.sessionId,
         requestId: extra.requestId,
@@ -126,13 +132,21 @@ if (enabledTools.has("save")) {
       const where = resolveCwd();
       probe("tool-call", {
         tool: "save",
-        args,
+        args: describeArgs(args),
         meta: extra._meta,
         sessionId: extra.sessionId,
         requestId: extra.requestId,
         cwd: where,
       });
       if (!vault) return failure("CONTEXTBASE_VAULT is not set, so there is nowhere to save.");
+
+      // Matches explicit mentions only; the real exclusion list (decision D6) comes in M1.
+      const memoryText = [args.summary, args.body, ...(args.about ?? []), args.supersedes ?? ""].join("\n");
+      const denied = saveDeny.find((word) => memoryText.includes(word));
+      if (denied) {
+        probe("save-denied", { word: denied });
+        return failure(`Not saved: this vault keeps work that mentions "${denied}" out of agent memory.`);
+      }
 
       const now = new Date();
       const folder = join(vault, "Agent Memory", `${now.getFullYear()}-${pad(now.getMonth() + 1)}`);

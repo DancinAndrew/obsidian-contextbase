@@ -20,7 +20,12 @@ test("the server lists its tools, answers search and writes a memory note", asyn
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [serverFile],
-    env: { ...getDefaultEnvironment(), CONTEXTBASE_VAULT: vault, CONTEXTBASE_PROBE_LOG: probeLog },
+    env: {
+      ...getDefaultEnvironment(),
+      CONTEXTBASE_VAULT: vault,
+      CONTEXTBASE_PROBE_LOG: probeLog,
+      CONTEXTBASE_SAVE_DENY: "機密",
+    },
   });
   const client = new Client({ name: "smoke-test", version: "0.0.0" });
   await client.connect(transport);
@@ -56,6 +61,14 @@ test("the server lists its tools, answers search and writes a memory note", asyn
     assert.match(note, /^agent: "smoke-test"$/m);
     assert.match(note, /^ {2}- "\[\[京都 2026 行程\]\]"$/m);
     assert.match(note, /\*\*下一步：\*\* 更新行程表。/);
+
+    const refused = await client.callTool({
+      name: "save",
+      arguments: { type: "decision", summary: "機密計畫改期", body: "改到下週。", decided_by: "user" },
+    });
+    assert.equal(refused.isError, true);
+    assert.match(textOf(refused), /Not saved/);
+    assert.equal(readdirSync(join(vault, "Agent Memory", month)).length, 1, "the refused memory wrote no file");
 
     // The probe log is written by the server process, which may lag a moment behind the replies.
     for (let attempt = 0; attempt < 20 && !existsSync(probeLog); attempt++) {
