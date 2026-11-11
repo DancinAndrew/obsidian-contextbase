@@ -34,7 +34,7 @@
 需要細節時用 search；Agent Memory/ 只新增、不手改。
 ```
 
-整段約 280 字，是從記憶筆記查出來的，不必有人寫。它取代的是 2.1 節那份 34 KB 的交接文件。
+整段約 280 字，是從記憶筆記查出來的，不必有人寫。它取代的是 2.1 節那份 34 KB 的交接文件。實際注入時，最前面還會多一段固定的說明（約 100 個 token）：這份記憶是做什麼的、什麼時候該用 `save` 存（D11）；上面的範例只列出近況的部分。
 
 **二、問第一句話時，相關的記憶自動附上（D7）。** 使用者問「第二天的交通怎麼排？」，agent 在回答前就收到「11/09 決定：第二天改去宇治，嵐山移到第四天；下一步：更新行程表第二天的交通」。agent 不必自己想到要去查，也不會拿到已被取代的舊決定。
 
@@ -173,15 +173,15 @@ MCP server 能提供三種能力：
 | Resources | 客戶端應用程式附加 | MVP 不用 |
 | Prompts | 使用者觸發，Claude Code 會顯示成 slash command | 之後再加，例如 `/checkpoint`：現在就存 |
 
-傳輸用 stdio：客戶端把 server 當子程序啟動，透過 stdin 與 stdout 交換 JSON-RPC 訊息。每個 session 各自啟動一個 server 程序，所以 Claude Code 與 Codex 同時開著時，會有兩個程序共用同一個索引檔（見第 9 節）。MCP 握手時客戶端會報上自己的名字（`clientInfo`），所以 `save` 不必讓 agent 自己說「我是誰」。
+傳輸用 stdio：客戶端把 server 當子程序啟動，透過 stdin 與 stdout 交換 JSON-RPC 訊息。每個 session 各自啟動一個 server 程序，所以 Claude Code 與 Codex 同時開著時，會有兩個程序共用同一個索引檔（見第 9 節）。MCP 握手時客戶端會報上自己的名字（`clientInfo`），所以 `save` 不必讓 agent 自己說「我是誰」。M0 實測的名字是 `claude-code` 與 `codex-mcp-client`，需要一張對照表（5.3 節）。
 
 Hooks 是客戶端在生命週期的固定時間點執行的指令，讓讀寫不必靠人記得：
 
-- **SessionStart（開工）：** hook 印出的文字會被注入成 agent 的上下文。Claude Code 支援 stdout 或 JSON 的 `additionalContext`；Codex 依第三方整理也是把 stdout 當成開發者訊息注入。
+- **SessionStart（開工）：** hook 印出的文字會被注入成 agent 的上下文。Claude Code 支援 stdout 或 JSON 的 `additionalContext`；Codex 依官方文件也是把 stdout 當成開發者上下文注入。
 - **UserPromptSubmit（送出問題時）：** 使用者每送出一句話就觸發，輸出一樣可以注入成上下文。Claude Code 與 Codex 都有；Codex 另有 `additionalContext` 的長度上限設定。依 D7，用它在每個 session 的第一句話附上相關記憶。
 - **Stop（收工）：** 每一回合 agent 要停下時都會觸發，不是只在整個 session 結束時。Claude Code 的 Stop hook 可以回傳 `{"decision": "block", "reason": "..."}` 擋住結束，`reason` 會變成給 agent 的指示；輸入裡的 `stop_hook_active` 表示「這次已經是被擋過之後」，用來避免無限迴圈。Codex 也有 Stop hook。
 
-Codex 的 hooks 細節來自第三方整理，M0 以官方文件與實測確認。
+兩邊 hooks 的輸入格式與設定位置，M0 已用實測確認，結果在 [m0-findings.md](m0-findings.md)。三件要記住的事：Codex 的 hooks 要使用者審查信任才會執行，沒信任就靜默跳過；Codex 的 Stop hook 擋一次有效，`stop_hook_active` 的行為和文件一致；兩邊的 hook 都和 server 看得到同一個 session id。
 
 ### 3.8 和 LLM Wiki 的關係：記憶的層次
 
@@ -270,8 +270,8 @@ npx obsidian-contextbase init --vault ~/path/to/vault
 
 npm 上的 `contextbase` 已被另一個專案使用，所以套件名用 `obsidian-contextbase`。`init` 做三件事：
 
-1. 把 MCP server 註冊到 Claude Code（使用者層級，所有專案都能用）與 Codex（`~/.codex/config.toml` 的 `[mcp_servers.contextbase]`）。vault 的路徑寫在 server 的啟動參數裡，所以不需要全域設定檔。
-2. 安裝開工、送出問題、收工三個 hooks：Claude Code 寫進 `~/.claude/settings.json`；Codex 的位置 M0 確認。
+1. 把 MCP server 註冊到 Claude Code（使用者層級，所有專案都能用）與 Codex（`~/.codex/config.toml` 的 `[mcp_servers.contextbase]`）。vault 的路徑寫在 server 的啟動參數裡，所以不需要全域設定檔。啟動指令寫 `node` 的絕對路徑，不依賴 `PATH`；`save` 要設定核准，免得自動寫回卡在確認。這幾項都會改使用者的全域設定，所以先列出改動，經同意才寫入。
+2. 安裝開工、送出問題、收工三個 hooks：Claude Code 寫進 `~/.claude/settings.json`；Codex 寫進 `~/.codex/hooks.json` 或 `config.toml` 的 `[hooks]`。Codex 要使用者審查信任 hooks 才會執行，沒信任的會被靜默跳過，所以 `init` 結束時要提示這一步（在 Codex 裡執行 `/hooks`），並提供檢查指令確認 hooks 真的跑過（M0 實測）。
 3. 在 vault 的 `.contextbase/` 建好第一次索引，並在裡面放一個內容只有 `*` 的 `.gitignore`（第 6 節第 6 點）。
 
 之後可以評估再包成 Claude Code plugin，讓 server 與 hooks 一次裝好。
@@ -298,8 +298,8 @@ created: 2026-11-09T14:32:00+08:00
 **下一步：** 更新行程表第二天的交通。
 ```
 
-- `about` 用 wikilink：在 Obsidian 打開「京都 2026 行程」時，反向連結面板就會列出所有相關的 agent 記憶，不需要任何外掛。
-- `agent`、`cwd`、`created` 由 server 填，agent 不必也不能自己填。
+- `about` 用 wikilink：在 Obsidian 打開「京都 2026 行程」時，反向連結面板就會列出所有相關的 agent 記憶，不需要任何外掛。agent 沒看過 vault 時會把 `about` 填成資料夾路徑（M0 兩次都是），所以 `save` 寫入前要把 `about` 解析成真正的筆記，對不到就回傳相近的筆記讓 agent 選，不寫失效連結。
+- `agent`、`cwd`、`created` 由 server 填，agent 不必也不能自己填。`agent` 取自握手的 `clientInfo`：實測 Claude Code 報 `claude-code`、Codex 報 `codex-mcp-client`，server 用對照表轉成 `claude-code` 與 `codex`，不認得的名字照原樣記。`cwd` 取自 server 的 `process.cwd()`（5.5 節）。
 - 記憶只新增、不改寫。新記憶用 `supersedes` 指向舊的；「是否已被取代」在建索引時推導，不必回頭改舊筆記。
 
 ### 5.4 MCP 工具
@@ -322,6 +322,8 @@ created: 2026-11-09T14:32:00+08:00
 2. **第一句話：** 使用者送出第一句話時，用這句話只搜記憶，注入最相關、沒被取代的一兩則（5.6 節）。
 3. **工作資料夾：** 只在 `cwd` 不是 vault 根目錄時使用，例如從子資料夾開的 session，或 vault 外的程式專案。
 
+M0 實測：兩邊 server 的 `process.cwd()` 都等於 session 的工作資料夾，即使資料夾有 `.git` 也不會上跳到 git 根目錄。Claude Code 另有 `roots` 與 `CLAUDE_PROJECT_DIR`（內容相同），Codex 的 `roots` 是空的，而且新版 MCP 規格已棄用 `roots`，所以一律讀 `process.cwd()`。桌面 app 與 Claudian 啟動的 session 沒有量。
+
 開工時的近況因此分兩種：
 
 - **在 vault 根目錄：** 依主題分組，列出最近的工作（1.1 節）。
@@ -333,14 +335,14 @@ created: 2026-11-09T14:32:00+08:00
 
 寫入有三條路徑，MVP 做前兩條：
 
-1. **主動存（MVP）：** 工具說明與 server instructions 講清楚記憶的用途：讓另一個 agent 不讀交接文件也能接手。何時該存由 agent 判斷，例如做出決定、完成一個段落、使用者說了偏好（D10）。
-2. **收工 hook 補漏（MVP）：** Stop hook 判斷有沒有可能漏存，有才擋一次，請 agent 自己判斷要不要 `save`；`stop_hook_active` 為真時一律放行。觸發條件見 D4。
+1. **主動存（MVP）：** 工具說明與 server instructions 講清楚記憶的用途：讓另一個 agent 不讀交接文件也能接手。何時該存由 agent 判斷，例如做出決定、完成一個段落、使用者說了偏好（D10）。M0 在 Codex 實測：只靠 instructions，3 次裡 0 次存，因為 Codex 在發現工具之前看不到它。所以用途說明放在兩處：instructions，以及開工 hook 輸出的開頭，兩處共用程式裡的同一個常數（D11）。
+2. **收工 hook 補漏（MVP）：** Stop hook 判斷有沒有可能漏存，有才擋一次，請 agent 自己判斷要不要 `save`；`stop_hook_active` 為真時一律放行。觸發條件見 D4。M0 在 Codex 實測：擋一次之後 agent 就存了（1 次）。「這一回合存過沒有」可以靠 session id 與 `turn_id`（Codex）或回合開始的時間（Claude Code）判斷，見 [m0-findings.md](m0-findings.md)。
 3. **收集原生記憶（之後）：** 把 Codex 的 session 摘要、Claude Code 的記憶檔轉進 `Agent Memory/`。好處是摘要已經做好，不花額外 token；風險是內部格式會改版，所以每個 agent 一個轉接器（adapter），格式改了只改那一個。
 
 讀取有三條路徑，MVP 都做：
 
-1. **開工 hook：** 執行 `recent`，把近況（幾百字）印到 stdout，注入成 agent 的上下文。在 vault 根目錄開工時，依主題列出最近的工作（1.1 節）。
-2. **送出第一句話時：** 用這句話只搜記憶，把最相關、沒被取代的一兩則附上。只在每個 session 的第一句話做，hook 用 session id 記住做過沒有，免得每句話都花 token。
+1. **開工 hook：** 執行 `recent`，把近況（幾百字）印到 stdout，注入成 agent 的上下文。輸出的開頭固定帶一段用途與 `save` 時機的說明（D11），再接近況。在 vault 根目錄開工時，依主題列出最近的工作（1.1 節）。
+2. **送出第一句話時：** 用這句話只搜記憶，把最相關、沒被取代的一兩則附上。只在每個 session 的第一句話做，hook 用 session id 記住做過沒有，免得每句話都花 token。兩邊的 hook 都拿得到 `session_id`，server 也看得到同一個（Claude Code 在環境變數 `CLAUDE_CODE_SESSION_ID`，Codex 在工具呼叫的 `_meta`），所以狀態放在 `.contextbase/` 底下、以 session id 命名的小檔案就夠，hook 與 server 不必直接通訊。
 3. **需要時搜尋：** agent 自己呼叫 `search`、`fetch`。
 
 主動注入很重要：Anthropic 的實驗裡，Sonnet 4.6 常常不去讀自己的記憶資料夾，Sonnet 5 十次有九次會讀。只提供搜尋工具，等於賭 agent 會想到要查。
@@ -386,11 +388,12 @@ M3 兩個方向都要示範：Codex 存、Claude Code 取，以及反過來。
 | 12 | D7：範圍改看 `about` 連結與第一句話，`cwd` 只在不是 vault 根目錄時用 | 11/11 | 作者的 Codex session 全部從 vault 根目錄開始，`cwd` 看不出主題；`about` 連的是筆記名稱，資料夾搬家也不會斷。做法見 5.5 節 |
 | 13 | D8：排名在 BM25 之外，再看取代關係、新近度與類型 | 11/11 | 新舊兩則決定的 BM25 分數只差 0.04（3.6 節）。被取代的不注入，搜尋時標示並降權；使用者的決定高於 agent 的提議，提議高於進度。參考 Generative Agents，但用類型代替模型打的重要性分數。權重在 M1 用測試調 |
 | 14 | D9：`save` 寫入前先比對相近的舊記憶 | 11/11 | 找到就先回給 agent，由它選擇取代、照樣新增或放棄。這是 Mem0 的做法，但判斷交給正在工作的 agent，不另跑模型；可以避免重複，也讓 `supersedes` 自然長出來 |
-| 15 | D10：MCP 的 server instructions 講記憶的用途，工具說明講用法 | 11/11 | 告訴模型記憶的用途比給固定規則好（Anthropic 的實驗）；Claude Code 與 Codex 都會讀 instructions，Codex 建議前 512 個字元自成一段；不必改使用者的 AGENTS.md |
+| 15 | D10：MCP 的 server instructions 講記憶的用途，工具說明講用法 | 11/11 | 告訴模型記憶的用途比給固定規則好（Anthropic 的實驗）；不必改使用者的 AGENTS.md。Claude Code 與 Codex 都支援 instructions，Codex 建議前 512 個字元自成一段。11/11（M0）：Codex 要發現工具之後才看得到，開頭看不到，所以用途說明需要第二個管道，見第 6 節第 16 點 |
+| 16 | D11：用途說明放在兩處：MCP server instructions，加上開工 hook 輸出的開頭，兩處共用程式裡的同一個常數 | 11/11 | 使用者的選擇（方案 B）。M0 在 Codex 實測：instructions 要發現工具之後才看得到，只靠它時 3 次裡 0 次存；收工 hook 提醒後 1 次裡 1 次存。成本約 100 個 token，沒有 hooks 的 client 仍有 instructions。放棄的是只放 instructions（agent 平常不存，要等收工被擋才存）和只放 hook（沒有 hooks 的 client 看不到用途）。文字要直接點名 `save` 和 contextbase 這個 server，因為 Codex 的模型在發現工具之前不知道有它。效果（開工注入後 agent 會不會自己存）目前是推論，M2 補測 |
 
 ## 7. 待決定
 
-11/11 起 D1–D10 都已定案（第 6 節第 6–15 點），當時考慮過的選項寫在各點的理由裡。M0 的驗證若推翻其中任何一點，例如 Codex 讀不到 server instructions，或兩邊 hooks 的輸入和預期不同，再回到這裡重新討論。
+D1–D11 都已定案（第 6 節第 6–16 點），沒有待決定的項目。M0 的實測（[m0-findings.md](m0-findings.md)）推翻過 D10 的一個前提，後來由 D11 補上。M0 到 M2 的實測若再推翻其中任何一點，例如開工 hook 注入用途說明之後 agent 還是不存，再回到這裡重新討論。
 
 ## 8. 路線圖
 
@@ -401,6 +404,8 @@ M3 兩個方向都要示範：Codex 存、Claude Code 取，以及反過來。
 | M2 工具與 hooks | 11/15 | 四個工具、工具說明與 server instructions（D10）；開工、送出問題、收工三個 hooks；`init` 一行安裝 | 工具說明怎麼寫，agent 才會在對的時機呼叫；hooks 的生命週期 | 記憶怎麼在 agent 之間共享？怎麼自動寫回？ |
 | M3 示範 | 11/18 | 雙向的跨 agent 示範；錄影；英文 README 補上實際用法 | 端到端驗收 | 和 claude-mem、basic-memory 有什麼不同？ |
 | M4 之後 | — | 收集原生記憶、檢索評估集、混合檢索、Obsidian 外掛、Claude Code plugin、遠端連線（讓 ChatGPT 網頁版也能用） | 檢索評估方法、外掛開發與發佈 | 怎麼證明檢索變好了？ |
+
+**M0 狀態（11/11）：** 完成，結果在 [m0-findings.md](m0-findings.md)。還沒做的兩項：用真實工作測只有 `save` 的版本、Claude Code 需要模型的測試。兩者都要先改全域設定或登入，等使用者同意。
 
 ### 學習方式
 
@@ -415,8 +420,8 @@ M3 之後，這個專案自己的決定也改用 Contextbase 記錄，自己先�
 
 ## 9. 風險與原則
 
-- **時程：** M3 要在 11/18 前完成，M4 全部排在之後。11/11 時 M0 還沒開始，比原訂晚一天；D1–D10 已在 11/11 定案，可以開工，M3 的日期不變。
-- **寫不下來比搜不到更危險：** 檢索方法的差異有限（3.6 節），如果 agent 不存、存錯或存太多，搜尋再準也沒用。所以 M0 就用真實工作測寫入。
+- **時程：** M3 要在 11/18 前完成，M4 全部排在之後。M0 在 11/11 完成，比原訂晚一天，M3 的日期不變；D1–D11 都已定案，可以開工 M1。
+- **寫不下來比搜不到更危險：** 檢索方法的差異有限（3.6 節），如果 agent 不存、存錯或存太多，搜尋再準也沒用。所以 M0 就測寫入：Codex 只靠 instructions 時 3 次裡 0 次存，加上收工 hook 才存（[m0-findings.md](m0-findings.md)）。用真實工作的測試還沒做。
 - **隱私：** 這個 repo 公開，只放程式與假資料，測試用 `fixtures/` 裡的假 vault。工具只在本機運作，不送出任何資料。
 - **敏感資料夾：** 排除清單預設生效；被排除的資料夾不進索引，`fetch` 也拒絕讀取。
 - **多個 agent 同時開著：** 每個 session 各有一個 server 程序，共用同一個 SQLite 索引。開 WAL 模式並設 busy timeout，可以同時讀，寫入會排隊。記憶一則一檔、檔名含時間，寫入不會互相覆蓋。
@@ -424,5 +429,6 @@ M3 之後，這個專案自己的決定也改用 Contextbase 記錄，自己先�
 - **記憶過期或錯誤：** 新記憶用 `supersedes` 取代舊的；使用者也可以直接在 Obsidian 改或刪記憶筆記，下一次查詢時索引就會跟上。注入層的錯誤會被帶進每個 session，所以被取代的記憶一律不注入。
 - **記憶太多太雜：** Anthropic 的 Pokémon 實驗裡，Sonnet 3.7 寫了 225 個資料夾、413 個檔案，只拿到 1 個徽章；Fable 5 只寫 9 個檔案就拿到 4 個。模型能力不同，不能全歸因於檔案數，但方向一致：記憶不是越多越好。只存筆記裡沒有的東西（決定、理由、下一步），寫入前比對（D9），近況限制在幾百字。
 - **同步工具：** Obsidian Sync 不同步以點開頭的資料夾，git 由 `.contextbase/.gitignore` 排除。用 iCloud 或 Dropbox 同步 vault 的人，索引會被一起同步，所以索引一打不開就刪掉重建，不嘗試修復。
+- **MCP 規格改版：** 最新版（2026-07-28）拿掉了 `initialize` 握手並棄用 `roots`；Claude Code 與 Codex 目前還用舊版握手（2025-11-25 與 2025-06-18）。讀取握手資訊的程式集中在一個模組，client 升級時只改那裡。
 - **模型推論混成事實：** `decided_by` 區分使用者的決定與 agent 的提議；開工注入時，agent 的提議會標成「提議」，不當成定案。
 - **原生記憶格式改版（M4）：** 每個 agent 一個轉接器，格式改了只改那一個。

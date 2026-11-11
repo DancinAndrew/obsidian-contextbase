@@ -2,7 +2,7 @@
 
 > Shared memory for your AI agents, kept as notes in your Obsidian vault. Claude Code, Codex and other MCP clients pick up each other's decisions without hand-written handoff documents.
 
-**Status: design phase (November 2026). Nothing is implemented yet; everything below describes the plan.** The design and its open decisions are in [docs/plan.md](docs/plan.md) (Traditional Chinese); prior art is surveyed in [docs/related-work.md](docs/related-work.md).
+**Status: design phase (November 2026). The memory itself is not implemented yet; everything below describes the plan.** A throwaway spike (an MCP server and hook probes) has checked the plan against Claude Code and Codex; the results are in [docs/m0-findings.md](docs/m0-findings.md). The design and its open decisions are in [docs/plan.md](docs/plan.md) and prior art is surveyed in [docs/related-work.md](docs/related-work.md) (both in Traditional Chinese).
 
 ## The problem
 
@@ -16,7 +16,7 @@ Notion's MCP server shows the pattern: a shared workspace, a search index the se
 
 Contextbase applies the same pattern to a local Obsidian vault:
 
-- **Zero setup.** One command registers the server and its hooks with Claude Code and Codex and builds the index. It needs no folder structure, frontmatter or naming convention in your vault.
+- **Zero setup.** One command registers the server and its hooks with Claude Code and Codex and builds the index; Codex asks you to review the hooks once. It needs no folder structure, frontmatter or naming convention in your vault.
 - **Memories are notes.** Each memory is a Markdown note in a single `Agent Memory/` folder, linked to the notes it is about, so it appears in Obsidian's backlinks. You can read, edit or delete it like any other note.
 - **Index, don't compile.** No language model rewrites your notes. A BM25 full-text index (SQLite FTS5 with CJK-aware tokenization) covers both your notes and the memories and updates incrementally. It lives in a hidden `.contextbase/` folder inside the vault that keeps itself out of Git, and Obsidian Sync skips it. Delete it and it is rebuilt.
 - **Write-back is automatic.** Agents save decisions and progress with a `save` tool, and a hook at the end of each turn reminds them when work may have gone unsaved.
@@ -77,7 +77,7 @@ Courses/Machine learning
   next: plot the two validation-error curves
 ```
 
-This replaces the handoff document. It is a few hundred characters, computed from memory notes rather than written by anyone, and a superseded decision is never presented as current.
+This replaces the handoff document. The digest is a few hundred characters, computed from memory notes rather than written by anyone, and a superseded decision is never presented as current. A short fixed paragraph above it tells the agent what the memory is for and when to save.
 
 ## How it relates to existing tools
 
@@ -91,7 +91,7 @@ This replaces the handoff document. It is a few hundred characters, computed fro
 
 ## Roadmap
 
-- [ ] M0 Validate MCP and hook integration with Claude Code and Codex
+- [x] M0 Validate MCP and hook integration with Claude Code and Codex ([findings](docs/m0-findings.md); a real-work test is still open)
 - [ ] M1 Core: vault scanner, CJK-aware tokenizer, incremental SQLite FTS5 index, ranking by relevance, recency and supersession, memory writer, CLI
 - [ ] M2 The four tools, session-start, first-message and end-of-turn hooks, one-command install
 - [ ] M3 Cross-agent demo on a sample vault, in both directions
