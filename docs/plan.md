@@ -258,17 +258,18 @@ flowchart LR
 | --- | --- |
 | core | 掃描 vault 並套用排除清單、斷詞、FTS5 索引與增量更新、BM25 排序與範圍加權、寫入記憶筆記 |
 | MCP server | 把 core 包成四個工具的薄層，用 stdio 傳輸 |
-| CLI | `init` 安裝、`serve` 啟動 MCP server；`index`、`search`、`recent` 給 hooks 呼叫，也用來除錯 |
+| CLI | `init`、`uninstall`、`doctor` 負責安裝與檢查；`serve` 啟動 MCP server；`hook` 給三個 hooks 呼叫；`index`、`search`、`recent`、`exclude` 用來檢查與設定 |
 | hooks | 開工：呼叫 `recent`，把近況印到 stdout；送出第一句話：只搜記憶，附上最相關的一兩則；收工：判斷要不要擋下來提醒 `save` |
 | Obsidian 外掛（之後） | 記憶時間線與設定介面；評估把 server 放進外掛 |
 
 ### 5.2 安裝
 
 ```bash
-npx obsidian-contextbase init --vault ~/path/to/vault
+npm install -g obsidian-contextbase
+contextbase init --vault ~/path/to/vault
 ```
 
-npm 上的 `contextbase` 已被另一個專案使用，所以套件名用 `obsidian-contextbase`。`init` 做三件事：
+npm 上的 `contextbase` 已被另一個專案使用，所以套件名用 `obsidian-contextbase`。不用 `npx` 執行 `init`：npx 把套件放在會被清掉的暫存資料夾，寫進設定的路徑會失效（假設 H11）；還沒發佈到 npm 之前，用 `npm pack` 打包再安裝。`init` 預設只印出要改的地方，同意才寫入；範圍分 `--scope vault` 與 `--scope user`（第 7 節 D13）。`init` 做三件事：
 
 1. 把 MCP server 註冊到 Claude Code（使用者層級，所有專案都能用）與 Codex（`~/.codex/config.toml` 的 `[mcp_servers.contextbase]`）。vault 的路徑寫在 server 的啟動參數裡，所以不需要全域設定檔。啟動指令寫 `node` 的絕對路徑，不依賴 `PATH`；`save` 要設定核准，免得自動寫回卡在確認。這幾項都會改使用者的全域設定，所以先列出改動，經同意才寫入。
 2. 安裝開工、送出問題、收工三個 hooks：Claude Code 寫進 `~/.claude/settings.json`；Codex 寫進 `~/.codex/hooks.json` 或 `config.toml` 的 `[hooks]`。Codex 要使用者審查信任 hooks 才會執行，沒信任的會被靜默跳過，所以 `init` 結束時要提示這一步（在 Codex 裡執行 `/hooks`），並提供檢查指令確認 hooks 真的跑過（M0 實測）。
@@ -393,7 +394,31 @@ M3 兩個方向都要示範：Codex 存、Claude Code 取，以及反過來。
 
 ## 7. 待決定
 
-D1–D11 都已定案（第 6 節第 6–16 點），沒有待決定的項目。M0 的實測（[m0-findings.md](m0-findings.md)）推翻過 D10 的一個前提，後來由 D11 補上。M0 到 M2 的實測若再推翻其中任何一點，例如開工 hook 注入用途說明之後 agent 還是不存，再回到這裡重新討論。
+D1–D11 已定案（第 6 節第 6–16 點）。M0 的實測推翻過 D10 的一個前提，後來由 D11 補上。M1、M2 實作時，作者的 agent 先用暫定值往下做，以下兩點需要作者決定；其餘的實作假設列在 [assumptions.md](assumptions.md)。之後的實測若推翻任何一點，例如開工 hook 注入用途說明之後 agent 還是不存，再回到這裡討論。
+
+### D12：預設的中文斷詞
+
+**問題：** 中文要先切詞才能建 BM25 索引（3.6 節）。兩種做法都已實作，可以在設定檔切換，要決定預設值。實測見 [evaluation.md](evaluation.md)：評估集上兩者都滿分；但按詞切的索引，有 15% 的（筆記, 詞）組合單獨查不到，例如「期末專題」裡的「期末」。兩字一組全部查得到，代價是跨詞的雜訊（「秋天的」對到「第三天的」）和大一點的索引（63 MB 對 56 MB）。
+
+| 選項 | 做法 | 代價 |
+| --- | --- | --- |
+| A（暫定） | 兩字一組 | 跨詞雜訊，靠 IDF 和第一句話注入的門檻壓低 |
+| B | `Intl.Segmenter` 按詞切 | 詞的一部分、在上下文中切法不同的詞會查不到 |
+| C | 兩種都索引，查詢時合併 | 索引約大一倍，合併的權重要再評估；適合排在 M4，和混合檢索一起做 |
+
+建議 A：對記憶來說，漏掉一則相關的，比多一個排在後面的雜訊更糟。
+
+### D13：`init` 的預設範圍
+
+**問題：** 作者問過「這會影響到所有的嗎？」。`--scope vault` 只影響從 vault 開的 session，`--scope user` 對所有專案都生效。
+
+| 選項 | 做法 | 代價 |
+| --- | --- | --- |
+| A（暫定） | 預設 vault | 在 vault 外的程式專案工作時沒有記憶；5.5 節「vault 成為所有 agent 工作的記憶」要使用者自己選 user |
+| B | 預設 user | 每個專案的每個 session 都多一個 server 行程和一段開工注入，第一次安裝的影響範圍大 |
+| C | 不給預設，一定要使用者選 | 多問一個問題，但不會有人意外裝到所有專案 |
+
+建議 A，等 vault 限定的真實工作測試有結果再重看：在 vault 裡用得順，再考慮擴大。
 
 ## 8. 路線圖
 
@@ -405,7 +430,9 @@ D1–D11 都已定案（第 6 節第 6–16 點），沒有待決定的項目。
 | M3 示範 | 11/18 | 雙向的跨 agent 示範；錄影；英文 README 補上實際用法 | 端到端驗收 | 和 claude-mem、basic-memory 有什麼不同？ |
 | M4 之後 | — | 收集原生記憶、檢索評估集、混合檢索、Obsidian 外掛、Claude Code plugin、遠端連線（讓 ChatGPT 網頁版也能用） | 檢索評估方法、外掛開發與發佈 | 怎麼證明檢索變好了？ |
 
-**M0 狀態（11/11）：** 完成，結果在 [m0-findings.md](m0-findings.md)。還沒做的兩項：用真實工作測只有 `save` 的版本、Claude Code 需要模型的測試。兩者都要先改全域設定或登入，等使用者同意。
+**M0 狀態（11/11）：** 完成，結果在 [m0-findings.md](m0-findings.md)。還沒做的兩項：用真實工作測只有 `save` 的版本、Claude Code 需要模型的測試。兩者都要先改全域設定或登入，等使用者同意。11/11 起已在作者的 vault 裝了只限 vault 的探針版本，測試進行中。
+
+**M1、M2 狀態（11/12）：** 程式完成，52 個測試通過；評估在 [evaluation.md](evaluation.md)，學習筆記在 [learning-notes.md](learning-notes.md)，實作假設在 [assumptions.md](assumptions.md)。還沒做的：D12、D13 待決定；沒有發佈到 npm；M3 的腳本在 [demo.md](demo.md)，實際操作兩個 agent 與錄影要作者來。
 
 ### 學習方式
 
@@ -420,7 +447,7 @@ M3 之後，這個專案自己的決定也改用 Contextbase 記錄，自己先�
 
 ## 9. 風險與原則
 
-- **時程：** M3 要在 11/18 前完成，M4 全部排在之後。M0 在 11/11 完成，比原訂晚一天，M3 的日期不變；D1–D11 都已定案，可以開工 M1。
+- **時程：** M3 要在 11/18 前完成，M4 全部排在之後。M0 在 11/11 完成；M1、M2 的程式在 11/12 完成，比原訂的 11/13、11/15 早。M3 剩作者操作兩個 agent 與錄影。
 - **寫不下來比搜不到更危險：** 檢索方法的差異有限（3.6 節），如果 agent 不存、存錯或存太多，搜尋再準也沒用。所以 M0 就測寫入：Codex 只靠 instructions 時 3 次裡 0 次存，加上收工 hook 才存（[m0-findings.md](m0-findings.md)）。用真實工作的測試還沒做。
 - **隱私：** 這個 repo 公開，只放程式與假資料，測試用 `fixtures/` 裡的假 vault。工具只在本機運作，不送出任何資料。
 - **敏感資料夾：** 排除清單預設生效；被排除的資料夾不進索引，`fetch` 也拒絕讀取。
@@ -430,5 +457,6 @@ M3 之後，這個專案自己的決定也改用 Contextbase 記錄，自己先�
 - **記憶太多太雜：** Anthropic 的 Pokémon 實驗裡，Sonnet 3.7 寫了 225 個資料夾、413 個檔案，只拿到 1 個徽章；Fable 5 只寫 9 個檔案就拿到 4 個。模型能力不同，不能全歸因於檔案數，但方向一致：記憶不是越多越好。只存筆記裡沒有的東西（決定、理由、下一步），寫入前比對（D9），近況限制在幾百字。
 - **同步工具：** Obsidian Sync 不同步以點開頭的資料夾，git 由 `.contextbase/.gitignore` 排除。用 iCloud 或 Dropbox 同步 vault 的人，索引會被一起同步，所以索引一打不開就刪掉重建，不嘗試修復。
 - **MCP 規格改版：** 最新版（2026-07-28）拿掉了 `initialize` 握手並棄用 `roots`；Claude Code 與 Codex 目前還用舊版握手（2025-11-25 與 2025-06-18）。讀取握手資訊的程式集中在一個模組，client 升級時只改那裡。
+- **索引大小與門檻：** 合成的 2,500 篇（26.5 MB）建出 56–63 MB 的索引，放在 vault 的 `.contextbase/`。它不進 git，Obsidian Sync 也不同步，但用 iCloud 或 Dropbox 同步 vault 的人會一起同步。第一句話注入的分數門檻與排名權重都是用假 vault 校準的，要用真實工作測試的資料重調。
 - **模型推論混成事實：** `decided_by` 區分使用者的決定與 agent 的提議；開工注入時，agent 的提議會標成「提議」，不當成定案。
 - **原生記憶格式改版（M4）：** 每個 agent 一個轉接器，格式改了只改那一個。

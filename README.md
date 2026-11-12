@@ -2,7 +2,7 @@
 
 > Shared memory for your AI agents, kept as notes in your Obsidian vault. Claude Code, Codex and other MCP clients pick up each other's decisions without hand-written handoff documents.
 
-**Status: design phase (November 2026). The memory itself is not implemented yet; everything below describes the plan.** A throwaway spike (an MCP server and hook probes) has checked the plan against Claude Code and Codex; the results are in [docs/m0-findings.md](docs/m0-findings.md). The design and its open decisions are in [docs/plan.md](docs/plan.md) and prior art is surveyed in [docs/related-work.md](docs/related-work.md) (both in Traditional Chinese).
+**Status (November 2026):** the index, the four MCP tools, the three hooks and the installer work and are covered by tests (`npm test`, 52 tests). The package is not on npm yet, and the two-way demo with real agents (milestone M3) has not been recorded. The design is in [docs/plan.md](docs/plan.md), measurements in [docs/evaluation.md](docs/evaluation.md) and [docs/m0-findings.md](docs/m0-findings.md), prior art in [docs/related-work.md](docs/related-work.md) (all in Traditional Chinese).
 
 ## The problem
 
@@ -10,47 +10,68 @@ Coding agents already remember things, but each one keeps its memory to itself. 
 
 So when you switch agents halfway through a task, you write a handoff document by hand: what is current, what was decided, what comes next. You end up carrying memory between two silos yourself.
 
-## The idea
+## How it works
 
-Notion's MCP server shows the pattern: a shared workspace, a search index the service keeps up to date, and tools to search, read and write pages. The server itself remembers nothing. Memory emerges because one agent writes a page that another agent can find.
+- **Memories are notes.** Each memory is a Markdown note in `Agent Memory/<year-month>/`, linked to the notes it is about, so it appears in Obsidian's backlinks. You can read, edit or delete it like any other note.
+- **Index, don't compile.** No language model rewrites your notes. A BM25 full-text index (SQLite FTS5) covers your notes and the memories and updates incrementally before each query. Chinese, Japanese and Korean text is split into character pairs (or, as a setting, into dictionary words). The index lives in a hidden `.contextbase/` folder inside the vault that keeps itself out of Git; Obsidian Sync skips it, and deleting it only means it is rebuilt.
+- **Ranking knows about decisions.** BM25 alone cannot tell an old decision from the one that replaced it. Results are therefore weighted by who decided (the user over an agent), how recent a memory is, and how close it is to the folder you work in; a replaced memory is marked and pushed down.
+- **Write-back is checked and reminded.** Agents save with the `save` tool. Before writing, `about` must name real notes, a similar existing memory is shown back instead of being duplicated, and words you list stay out of memory. At the end of a turn that changed files, or after five turns without a save, a hook asks the agent once whether something should be saved.
+- **Read-back is automatic.** A session-start hook injects what the memory is for and a short digest of recent work, grouped by topic. The first prompt of a session pulls in the memories most related to it. Agents can always `search` and `fetch`.
 
-Contextbase applies the same pattern to a local Obsidian vault:
+## Install (from source, for now)
 
-- **Zero setup.** One command registers the server and its hooks with Claude Code and Codex and builds the index; Codex asks you to review the hooks once. It needs no folder structure, frontmatter or naming convention in your vault.
-- **Memories are notes.** Each memory is a Markdown note in a single `Agent Memory/` folder, linked to the notes it is about, so it appears in Obsidian's backlinks. You can read, edit or delete it like any other note.
-- **Index, don't compile.** No language model rewrites your notes. A BM25 full-text index (SQLite FTS5 with CJK-aware tokenization) covers both your notes and the memories and updates incrementally. It lives in a hidden `.contextbase/` folder inside the vault that keeps itself out of Git, and Obsidian Sync skips it. Delete it and it is rebuilt.
-- **Write-back is automatic.** Agents save decisions and progress with a `save` tool, and a hook at the end of each turn reminds them when work may have gone unsaved.
-- **Read-back is automatic.** A session-start hook injects a short digest of recent work, grouped by topic. The first message of each session pulls in the memories most related to it, and agents search for details when they need them.
-- **Scope is implicit.** Each memory links to the notes it is about, so the memories related to what you are working on come first. You never declare a scope.
-
-## Planned install
+Contextbase needs Node.js 22.13 or newer. So far it has been run on Node 26.5; the CI workflow covers Node 22, 24 and 26.
 
 ```bash
-npx obsidian-contextbase init --vault ~/path/to/vault
+git clone https://github.com/DancinAndrew/obsidian-contextbase.git
+cd obsidian-contextbase
+npm install
+npm pack
+npm install -g ./obsidian-contextbase-0.0.0.tgz
 ```
 
-It is written in TypeScript and uses Node's built-in SQLite, so installing it compiles nothing.
+Install from the packed file rather than with `npm install -g .`, which only links back to the clone.
 
-## Planned MCP tools
+Then install it for a vault. The first command only prints the changes it would make; the second applies them:
+
+```bash
+contextbase init --vault ~/path/to/vault
+contextbase init --vault ~/path/to/vault --yes
+```
+
+- `--scope vault` (the default) installs for sessions started in the vault only; `--scope user` installs for every project, so that memories from code projects also land in the vault.
+- In Codex, run `/hooks` once and trust the three Contextbase hooks. Codex skips untrusted hooks without a warning.
+- `contextbase doctor --vault ~/path/to/vault` checks every piece, including whether the hooks have run.
+
+## MCP tools
 
 | Tool | What it does |
 | --- | --- |
-| `search` | BM25 search over memories and notes that also weighs recency and flags superseded memories; returns snippets with line ranges |
-| `fetch` | Read a memory or note in full, or one line range of it |
-| `save` | Write a memory note (a decision, a progress update or a fact) linked to the notes it is about. If a similar memory already exists, the agent first chooses to replace it, add a new one anyway, or skip |
-| `recent` | Latest memories that have not been superseded, for one folder or grouped by topic; the session-start hook runs the same query |
+| `search` | Ranked search over memories and notes; each result has a path, line numbers and a snippet, and replaced memories are marked |
+| `fetch` | Read a note or memory with line numbers, or one range of lines; refuses paths outside the vault and excluded folders |
+| `save` | Write a memory note: a decision, progress or a fact, linked to the notes it is about. A similar memory comes back first: replace it with `supersedes`, or save anyway with `confirm` |
+| `recent` | The latest memories that nothing replaced, grouped by topic or nearest to a folder |
 
-A memory note might look like this:
+## Hooks
+
+| Hook | Claude Code and Codex event | What it does |
+| --- | --- | --- |
+| `session-start` | SessionStart | Injects what the memory is for and the recent-work digest |
+| `prompt` | UserPromptSubmit | On a session's first prompt only, injects up to two related memories |
+| `stop` | Stop | If the turn changed files, or five turns went by without a save, asks once whether to save |
+
+## A memory note
 
 ```markdown
 ---
 type: decision
-summary: Move Uji to day 2 and Arashiyama to day 4
+summary: "Move Uji to day 2 and Arashiyama to day 4"
 decided_by: user
-agent: codex
-cwd: Travel/Kyoto 2026
+agent: "codex"
+cwd: "Travel/Kyoto 2026"
 about:
   - "[[Kyoto 2026 itinerary]]"
+supersedes: "[[2026-11-08 2105 Arashiyama on day 2]]"
 created: 2026-11-09T14:32:00+08:00
 ---
 Day 2 is only a half day, so the full-day Arashiyama trip moves to day 4.
@@ -62,22 +83,65 @@ The server fills in `agent`, `cwd` and `created` itself. Opening "Kyoto 2026 iti
 
 ## What a new session sees
 
-With a sample vault of 15 notes, the digest injected at the start of a session would look like this (translated from the Chinese sample):
-
 ```text
+[Contextbase] Contextbase is the shared memory between the AI agents that work in this Obsidian vault (Claude Code, Codex and others). ...
+
 [Contextbase] Recent work, by topic
 Travel/Kyoto 2026
-- 11/09 progress: day 3 dinner not booked yet; candidates in Restaurants (codex)
-  next: book once the day 3 schedule is fixed
-- 11/09 decision: Uji moves to day 2, Arashiyama to day 4 (decided by the user, recorded by codex)
+- 2026-11-09 decision (decided by the user, recorded by codex): Move Uji to day 2 and Arashiyama to day 4
   next: update the day 2 transport in the itinerary
-  superseded: 11/08 Arashiyama on day 2, Uji on day 4
+  replaces 2026-11-08: Arashiyama on day 2, Uji on day 4
+- 2026-11-09 progress (codex): Day 3 dinner not booked yet
+  next: book once the day 3 schedule is fixed
 Courses/Machine learning
-- 11/05 progress: preprocessing for the regularization assignment is done (claude-code)
+- 2026-11-05 progress (claude-code): Preprocessing for the regularization assignment is done
   next: plot the two validation-error curves
+Use the search tool for details. Notes in Agent Memory/ are append-only; do not edit them by hand.
 ```
 
-This replaces the handoff document. The digest is a few hundred characters, computed from memory notes rather than written by anyone, and a superseded decision is never presented as current. A short fixed paragraph above it tells the agent what the memory is for and when to save.
+The digest is computed from memory notes, stays under 1,500 characters, and never presents a replaced decision as current.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `contextbase init` / `uninstall` | Install or remove Contextbase for Claude Code and Codex; prints the changes first |
+| `contextbase doctor` | Check the index, both clients' settings, Codex's hook trust and when the hooks last ran |
+| `contextbase search <words>` | Search from the terminal |
+| `contextbase recent` | Print the digest a new session would see |
+| `contextbase index` | Bring the index up to date and print counts |
+| `contextbase exclude add <folder>` | Keep a folder out of the index and out of `fetch` |
+| `contextbase serve` / `hook` | What the clients run; you do not call these yourself |
+
+Every command takes `--vault <path>`, or reads `CONTEXTBASE_VAULT`.
+
+## Configuration
+
+`<vault>/.contextbase/config.json`:
+
+```json
+{
+  "exclude": ["Private"],
+  "saveDeny": ["salary"],
+  "tokenizer": "bigram"
+}
+```
+
+- `exclude`: folders kept out of the index and refused by `fetch`. Folders that start with a dot and `node_modules` are always skipped.
+- `saveDeny`: a memory that mentions one of these words is not written.
+- `tokenizer`: `bigram` (default) or `segmenter`. Changing it rebuilds the index.
+
+## Privacy
+
+Everything runs on your machine; Contextbase makes no network requests. Memories are ordinary notes in your vault, and the index stays in the vault's `.contextbase/` folder, out of Git and out of Obsidian Sync. A hook that fails exits quietly, so a broken setup never blocks your session.
+
+## Uninstall
+
+```bash
+contextbase uninstall --vault ~/path/to/vault --yes
+```
+
+This removes only the entries `init` added. Memories stay in `Agent Memory/`, and the index stays in `.contextbase/` until you delete that folder.
 
 ## How it relates to existing tools
 
@@ -91,11 +155,11 @@ This replaces the handoff document. The digest is a few hundred characters, comp
 
 ## Roadmap
 
-- [x] M0 Validate MCP and hook integration with Claude Code and Codex ([findings](docs/m0-findings.md); a real-work test is still open)
-- [ ] M1 Core: vault scanner, CJK-aware tokenizer, incremental SQLite FTS5 index, ranking by relevance, recency and supersession, memory writer, CLI
-- [ ] M2 The four tools, session-start, first-message and end-of-turn hooks, one-command install
-- [ ] M3 Cross-agent demo on a sample vault, in both directions
-- [ ] Later: import built-in agent memories, retrieval evaluation, hybrid search, Obsidian plugin
+- [x] M0 Validate MCP and hook integration with Claude Code and Codex ([findings](docs/m0-findings.md))
+- [x] M1 Core: vault scanner, CJK-aware tokenizer, incremental SQLite FTS5 index, ranking by relevance, recency and supersession, memory writer, CLI ([evaluation](docs/evaluation.md))
+- [x] M2 The four tools, the session-start, first-prompt and end-of-turn hooks, one-command install
+- [ ] M3 Cross-agent demo on a sample vault, in both directions ([script](docs/demo.md))
+- [ ] Later: import built-in agent memories, a larger retrieval evaluation, hybrid search, Obsidian plugin
 
 ## License
 

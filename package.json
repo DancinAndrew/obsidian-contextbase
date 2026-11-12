@@ -9,11 +9,25 @@
     "type": "git",
     "url": "git+https://github.com/DancinAndrew/obsidian-contextbase.git"
   },
+  "bin": {
+    "contextbase": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node src/server.ts",
-    "test": "node --test \"test/**/*.test.ts\""
+    "start": "node src/cli.ts serve",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "eval": "node scripts/eval.ts",
+    "bench": "node scripts/bench.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

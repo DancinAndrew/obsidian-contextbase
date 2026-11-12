@@ -23,7 +23,7 @@ M0 的目的，是在寫 M1 之前，用真的 Claude Code 和 Codex 檢查 [pla
 
 ## 2. 怎麼量的
 
-- **探針 server**（[`src/server.ts`](../src/server.ts)）：`search` 回傳假資料，`save` 把記憶寫成筆記。[`src/probe.ts`](../src/probe.ts) 把 client 送來的每一則 JSON-RPC 訊息原樣記進檔案，所以握手內容和工具呼叫的 `_meta` 都是實際送出的資料。
+- **探針 server**（commit `e58c30d` 的 `src/server.ts`，M2 時由正式版取代）：`search` 回傳假資料，`save` 把記憶寫成筆記。[`src/probe.ts`](../src/probe.ts) 把 client 送來的每一則 JSON-RPC 訊息原樣記進檔案，所以握手內容和工具呼叫的 `_meta` 都是實際送出的資料。
 - **探針 hook**（[`probe/hook-dump.mjs`](../probe/hook-dump.mjs)）：把 hook 收到的 JSON 記進檔案，並依 client 的格式回傳注入文字，或擋住收工。
 - **只掛在單次執行上，沒有動全域設定：** Claude Code 用 `--mcp-config`、`--strict-mcp-config` 與 `--settings`；Codex 用 `--ignore-user-config`、`--ephemeral` 與 `-c`。`~/.claude/` 與 `~/.codex/` 的設定檔沒有被修改。
 - **假 vault：** 15 篇合成筆記（其中 4 則是舊記憶），每次實驗重建一份。
