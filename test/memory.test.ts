@@ -8,7 +8,9 @@ import { agentName, saveMemory, type SaveInput } from "../src/memory.ts";
 import { Store } from "../src/store.ts";
 import { NOW, PATHS, tempVault } from "./helpers.ts";
 
-const at = new Date("2026-11-12T10:05:00+08:00");
+// 10:05 on 2026-11-12 in the machine's own time zone. Memory names use local time (assumption
+// I12), so a fixed instant such as 10:05+08:00 gives another name on a machine set to UTC.
+const at = new Date(2026, 10, 12, 10, 5);
 
 function open(config = {}) {
   const vault = tempVault(config);

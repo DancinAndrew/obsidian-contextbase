@@ -99,6 +99,7 @@ export class Store {
   readonly db: DatabaseSync;
   private names: { byName: Map<string, string[]>; byPath: Map<string, string> } | undefined;
   private statements: Record<string, StatementSync> = {};
+  private writes: Record<string, StatementSync> = {};
   private lastSync = 0;
 
   static open(vault: string, config: VaultConfig = loadConfig(vault)): Store {
@@ -167,16 +168,31 @@ export class Store {
         );
         CREATE INDEX chunks_by_note ON chunks(note_id);
       `);
-      const write = this.db.prepare(
+      const setMeta = this.write(
         "INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       );
-      write.run("schema", SCHEMA_VERSION);
-      write.run("tokenizer", this.config.tokenizer);
+      setMeta.run("schema", SCHEMA_VERSION);
+      setMeta.run("tokenizer", this.config.tokenizer);
     });
   }
 
   private statement(sql: string): StatementSync {
     return (this.statements[sql] ??= this.db.prepare(sql));
+  }
+
+  // Every write goes through here. run() reports the connection's last inserted rowid, and a
+  // delete from the contentless FTS5 table can leave it at an internal page id above 2^53
+  // (65537 << 37 on Node 26 in CI). Some Node.js releases throw ERR_OUT_OF_RANGE instead of
+  // returning such a number, so writes read their result as a BigInt; the two inserts that
+  // need the new id convert it back, since note and chunk ids stay small.
+  private write(sql: string): StatementSync {
+    let statement = this.writes[sql];
+    if (!statement) {
+      statement = this.db.prepare(sql);
+      statement.setReadBigInts(true);
+      this.writes[sql] = statement;
+    }
+    return statement;
   }
 
   private transaction(work: () => void): void {
@@ -226,9 +242,9 @@ export class Store {
   }
 
   private deleteNote(id: number): void {
-    this.statement("DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE note_id = ?)").run(id);
-    this.statement("DELETE FROM chunks WHERE note_id = ?").run(id);
-    this.statement("DELETE FROM notes WHERE id = ?").run(id);
+    this.write("DELETE FROM chunks_fts WHERE rowid IN (SELECT id FROM chunks WHERE note_id = ?)").run(id);
+    this.write("DELETE FROM chunks WHERE note_id = ?").run(id);
+    this.write("DELETE FROM notes WHERE id = ?").run(id);
   }
 
   private indexFile(file: VaultFile, oldId: number | undefined): void {
@@ -273,20 +289,20 @@ export class Store {
       if (chunks.length === 0) chunks = [{ startLine: 1, endLine: 1, text: "" }]; // still findable by name
     }
 
-    const inserted = this.statement(
+    const inserted = this.write(
       `INSERT INTO notes (path, name, kind, mtime, size, type, summary, decided_by, agent, cwd, about, supersedes, created, next)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(file.path, name, isMemory ? "memory" : "note", file.mtimeMs, file.size, ...(row as (string | null)[]));
     const noteId = Number(inserted.lastInsertRowid);
     const titleTerms = indexText(tokenize(title, this.tokenizer));
     for (const chunk of chunks) {
-      const added = this.statement("INSERT INTO chunks (note_id, start_line, end_line, text) VALUES (?, ?, ?, ?)").run(
+      const added = this.write("INSERT INTO chunks (note_id, start_line, end_line, text) VALUES (?, ?, ?, ?)").run(
         noteId,
         chunk.startLine,
         chunk.endLine,
         chunk.text,
       );
-      this.statement("INSERT INTO chunks_fts (rowid, title, body) VALUES (?, ?, ?)").run(
+      this.write("INSERT INTO chunks_fts (rowid, title, body) VALUES (?, ?, ?)").run(
         Number(added.lastInsertRowid),
         titleTerms,
         indexText(tokenize(chunk.text, this.tokenizer)),
@@ -306,7 +322,7 @@ export class Store {
       const target = this.resolve(row.supersedes);
       if (target && target !== row.path) supersededBy.set(target, row.path); // the later memory wins
     }
-    const update = this.statement("UPDATE notes SET superseded_by = ?, topic = ? WHERE id = ?");
+    const update = this.write("UPDATE notes SET superseded_by = ?, topic = ? WHERE id = ?");
     for (const row of rows) {
       let topic: string | null = null;
       for (const name of parseList(row.about)) {
