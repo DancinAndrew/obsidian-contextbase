@@ -110,7 +110,7 @@ M0 的目的，是在寫 M1 之前，用真的 Claude Code 和 Codex 檢查 [pla
 | 互動模式的核准提示（兩邊） | `exec` 與 `-p` 沒有人回答確認 | 真實工作測試時觀察 |
 | 用真實 vault 做一次真實工作測試（plan M0 的最後一項） | 要註冊全域設定、寫入真實 vault | 經作者同意後做 |
 | 桌面 app 與 Claudian 啟動的 session 的資料夾與環境 | 沒辦法在沙盒裡啟動它們 | 真實工作測試時，從探針紀錄看 |
-| Node 版本下限（`node:sqlite` 的 FTS5） | 本機只有 Node 26.5.0 | M1 用 CI 的版本矩陣（Node 22、24、26）測 |
+| Node 版本下限（`node:sqlite` 的 FTS5） | 本機只有 Node 26.5.0 | M1 用 CI 的版本矩陣（Node 22、24、26）測；11/12 三個版本都通過（宣稱的下限 22.13.0 本身沒測） |
 
 ## 6. 我能講清楚：MCP 的 tools、resources、prompts 差在哪
 

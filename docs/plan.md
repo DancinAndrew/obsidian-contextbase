@@ -410,7 +410,7 @@ M3 兩個方向都要示範：Codex 存、Claude Code 取，以及反過來。
 
 **M0 狀態（11/11）：** 完成，結果在 [m0-findings.md](m0-findings.md)。還沒做的兩項：用真實工作測只有 `save` 的版本、Claude Code 需要模型的測試。兩者都要先改全域設定或登入，等使用者同意。11/11 起已在作者的 vault 裝了只限 vault 的探針版本，測試進行中。
 
-**M1、M2 狀態（11/12）：** 程式完成，52 個測試通過；評估在 [evaluation.md](evaluation.md)，學習筆記在 [learning-notes.md](learning-notes.md)，實作假設在 [assumptions.md](assumptions.md)。D12、D13 在 11/12 定案（第 6 節第 17、18 點）。還沒做的：沒有發佈到 npm；M3 的腳本在 [demo.md](demo.md)，實際操作兩個 agent 與錄影要作者來。
+**M1、M2 狀態（11/12）：** 程式完成，52 個測試在本機與 CI（Node 22、24、26）通過；評估在 [evaluation.md](evaluation.md)，學習筆記在 [learning-notes.md](learning-notes.md)，實作假設在 [assumptions.md](assumptions.md)。D12、D13 在 11/12 定案（第 6 節第 17、18 點）。還沒做的：沒有發佈到 npm；M3 的腳本在 [demo.md](demo.md)，實際操作兩個 agent 與錄影要作者來。
 
 ### 學習方式
 

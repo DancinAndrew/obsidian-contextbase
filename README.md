@@ -20,7 +20,7 @@ So when you switch agents halfway through a task, you write a handoff document b
 
 ## Install (from source, for now)
 
-Contextbase needs Node.js 22.13 or newer. So far it has been run on Node 26.5; the CI workflow covers Node 22, 24 and 26.
+Contextbase needs Node.js 22.13 or newer. CI runs the tests on the newest Node 22, 24 and 26 (22.23, 24.22 and 26.13 at the last run). The lowest version claimed, 22.13.0, has not been tried.
 
 ```bash
 git clone https://github.com/DancinAndrew/obsidian-contextbase.git
