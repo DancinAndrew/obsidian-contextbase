@@ -1,6 +1,6 @@
 # 設計規劃與學習路線
 
-> 草稿 v1，2026-11-09；11/11 更新。取代 v0「每個資料夾一套 `_context/`」的設計：v0 只適合作者自己的 vault，別人裝了還得先替每個資料夾建結構。v1 的目標是像 Notion MCP 一樣，裝了就能用。第 6 節是已經討論定案的決定，第 7 節還要一起決定。
+> 草稿 v1，2026-11-09；11/11、11/12 更新。取代 v0「每個資料夾一套 `_context/`」的設計：v0 只適合作者自己的 vault，別人裝了還得先替每個資料夾建結構。v1 的目標是像 Notion MCP 一樣，裝了就能用。第 6 節是已經討論定案的決定，第 7 節列還要一起決定的事（目前沒有）。
 >
 > 11/11 補上：做出來之後看得到什麼（1.1）、為什麼不只用 grep（3.6）、和 LLM Wiki 的關係（3.8）、在 vault 根目錄開工時看不出範圍的問題（5.5），以及參考其他記憶系統後的四個改進（D7–D10）。同一天，D1–D10 依建議全部定案（第 6 節）。
 
@@ -269,7 +269,7 @@ npm install -g obsidian-contextbase
 contextbase init --vault ~/path/to/vault
 ```
 
-npm 上的 `contextbase` 已被另一個專案使用，所以套件名用 `obsidian-contextbase`。不用 `npx` 執行 `init`：npx 把套件放在會被清掉的暫存資料夾，寫進設定的路徑會失效（假設 H11）；還沒發佈到 npm 之前，用 `npm pack` 打包再安裝。`init` 預設只印出要改的地方，同意才寫入；範圍分 `--scope vault` 與 `--scope user`（第 7 節 D13）。`init` 做三件事：
+npm 上的 `contextbase` 已被另一個專案使用，所以套件名用 `obsidian-contextbase`。不用 `npx` 執行 `init`：npx 把套件放在會被清掉的暫存資料夾，寫進設定的路徑會失效（假設 H11）；還沒發佈到 npm 之前，用 `npm pack` 打包再安裝。`init` 預設只印出要改的地方，同意才寫入；範圍分 `--scope vault`（預設）與 `--scope user`（第 6 節第 18 點，D13）。`init` 做三件事：
 
 1. 把 MCP server 註冊到 Claude Code（使用者層級，所有專案都能用）與 Codex（`~/.codex/config.toml` 的 `[mcp_servers.contextbase]`）。vault 的路徑寫在 server 的啟動參數裡，所以不需要全域設定檔。啟動指令寫 `node` 的絕對路徑，不依賴 `PATH`；`save` 要設定核准，免得自動寫回卡在確認。這幾項都會改使用者的全域設定，所以先列出改動，經同意才寫入。
 2. 安裝開工、送出問題、收工三個 hooks：Claude Code 寫進 `~/.claude/settings.json`；Codex 寫進 `~/.codex/hooks.json` 或 `config.toml` 的 `[hooks]`。Codex 要使用者審查信任 hooks 才會執行，沒信任的會被靜默跳過，所以 `init` 結束時要提示這一步（在 Codex 裡執行 `/hooks`），並提供檢查指令確認 hooks 真的跑過（M0 實測）。
@@ -391,34 +391,12 @@ M3 兩個方向都要示範：Codex 存、Claude Code 取，以及反過來。
 | 14 | D9：`save` 寫入前先比對相近的舊記憶 | 11/11 | 找到就先回給 agent，由它選擇取代、照樣新增或放棄。這是 Mem0 的做法，但判斷交給正在工作的 agent，不另跑模型；可以避免重複，也讓 `supersedes` 自然長出來 |
 | 15 | D10：MCP 的 server instructions 講記憶的用途，工具說明講用法 | 11/11 | 告訴模型記憶的用途比給固定規則好（Anthropic 的實驗）；不必改使用者的 AGENTS.md。Claude Code 與 Codex 都支援 instructions，Codex 建議前 512 個字元自成一段。11/11（M0）：Codex 要發現工具之後才看得到，開頭看不到，所以用途說明需要第二個管道，見第 6 節第 16 點 |
 | 16 | D11：用途說明放在兩處：MCP server instructions，加上開工 hook 輸出的開頭，兩處共用程式裡的同一個常數 | 11/11 | 使用者的選擇（方案 B）。M0 在 Codex 實測：instructions 要發現工具之後才看得到，只靠它時 3 次裡 0 次存；收工 hook 提醒後 1 次裡 1 次存。成本約 100 個 token，沒有 hooks 的 client 仍有 instructions。放棄的是只放 instructions（agent 平常不存，要等收工被擋才存）和只放 hook（沒有 hooks 的 client 看不到用途）。文字要直接點名 `save` 和 contextbase 這個 server，因為 Codex 的模型在發現工具之前不知道有它。效果（開工注入後 agent 會不會自己存）目前是推論，M2 補測 |
+| 17 | D12：預設的中文斷詞用兩字一組；設定檔仍可改成 `Intl.Segmenter` 按詞切 | 11/12 | 作者照建議定案。評估集上兩者都滿分，但按詞切的索引有 15% 的（筆記, 詞）組合單獨查不到，例如「期末專題」裡的「期末」；兩字一組全部查得到。對記憶來說，漏掉一則相關的，比多一個排在後面的雜訊更糟。代價是跨詞的雜訊（「秋天的」對到「第三天的」），靠 IDF 和第一句話注入的門檻壓低，以及大一點的索引（63 MB 對 56 MB）。放棄的是按詞切，以及兩種都索引、查詢時合併（索引約大一倍，留到 M4 和混合檢索一起評估）。實測見 [evaluation.md](evaluation.md) |
+| 18 | D13：`init` 預設 `--scope vault`，只影響從 vault 開的 session；要對所有專案生效時加 `--scope user` | 11/12 | 作者照建議定案：先在 vault 裡用順，再考慮擴大。代價是在 vault 外的程式專案工作時沒有記憶，5.5 節「vault 成為所有 agent 工作的記憶」要使用者自己選 user。放棄的是預設 user（每個專案的每個 session 都多一個 server 行程和一段開工注入，第一次安裝的影響範圍大）和不給預設（多問一個問題）。等 vault 限定的真實工作測試有結果再重看 |
 
 ## 7. 待決定
 
-D1–D11 已定案（第 6 節第 6–16 點）。M0 的實測推翻過 D10 的一個前提，後來由 D11 補上。M1、M2 實作時，作者的 agent 先用暫定值往下做，以下兩點需要作者決定；其餘的實作假設列在 [assumptions.md](assumptions.md)。之後的實測若推翻任何一點，例如開工 hook 注入用途說明之後 agent 還是不存，再回到這裡討論。
-
-### D12：預設的中文斷詞
-
-**問題：** 中文要先切詞才能建 BM25 索引（3.6 節）。兩種做法都已實作，可以在設定檔切換，要決定預設值。實測見 [evaluation.md](evaluation.md)：評估集上兩者都滿分；但按詞切的索引，有 15% 的（筆記, 詞）組合單獨查不到，例如「期末專題」裡的「期末」。兩字一組全部查得到，代價是跨詞的雜訊（「秋天的」對到「第三天的」）和大一點的索引（63 MB 對 56 MB）。
-
-| 選項 | 做法 | 代價 |
-| --- | --- | --- |
-| A（暫定） | 兩字一組 | 跨詞雜訊，靠 IDF 和第一句話注入的門檻壓低 |
-| B | `Intl.Segmenter` 按詞切 | 詞的一部分、在上下文中切法不同的詞會查不到 |
-| C | 兩種都索引，查詢時合併 | 索引約大一倍，合併的權重要再評估；適合排在 M4，和混合檢索一起做 |
-
-建議 A：對記憶來說，漏掉一則相關的，比多一個排在後面的雜訊更糟。
-
-### D13：`init` 的預設範圍
-
-**問題：** 作者問過「這會影響到所有的嗎？」。`--scope vault` 只影響從 vault 開的 session，`--scope user` 對所有專案都生效。
-
-| 選項 | 做法 | 代價 |
-| --- | --- | --- |
-| A（暫定） | 預設 vault | 在 vault 外的程式專案工作時沒有記憶；5.5 節「vault 成為所有 agent 工作的記憶」要使用者自己選 user |
-| B | 預設 user | 每個專案的每個 session 都多一個 server 行程和一段開工注入，第一次安裝的影響範圍大 |
-| C | 不給預設，一定要使用者選 | 多問一個問題，但不會有人意外裝到所有專案 |
-
-建議 A，等 vault 限定的真實工作測試有結果再重看：在 vault 裡用得順，再考慮擴大。
+目前沒有待決定的事項。D1–D13 都已定案（第 6 節第 6–18 點）；M0 的實測推翻過 D10 的一個前提，後來由 D11 補上。D12、D13 是 M1、M2 實作時先用暫定值往下做的兩點，11/12 由作者照建議定案；其餘的實作假設列在 [assumptions.md](assumptions.md)，作者同一天決定全部照建議保留。之後的實測若推翻任何一點，例如開工 hook 注入用途說明之後 agent 還是不存，或第一句話注入的門檻（3）在真實的 vault 上太鬆或太緊，再回到這裡討論。
 
 ## 8. 路線圖
 
@@ -432,7 +410,7 @@ D1–D11 已定案（第 6 節第 6–16 點）。M0 的實測推翻過 D10 的�
 
 **M0 狀態（11/11）：** 完成，結果在 [m0-findings.md](m0-findings.md)。還沒做的兩項：用真實工作測只有 `save` 的版本、Claude Code 需要模型的測試。兩者都要先改全域設定或登入，等使用者同意。11/11 起已在作者的 vault 裝了只限 vault 的探針版本，測試進行中。
 
-**M1、M2 狀態（11/12）：** 程式完成，52 個測試通過；評估在 [evaluation.md](evaluation.md)，學習筆記在 [learning-notes.md](learning-notes.md)，實作假設在 [assumptions.md](assumptions.md)。還沒做的：D12、D13 待決定；沒有發佈到 npm；M3 的腳本在 [demo.md](demo.md)，實際操作兩個 agent 與錄影要作者來。
+**M1、M2 狀態（11/12）：** 程式完成，52 個測試通過；評估在 [evaluation.md](evaluation.md)，學習筆記在 [learning-notes.md](learning-notes.md)，實作假設在 [assumptions.md](assumptions.md)。D12、D13 在 11/12 定案（第 6 節第 17、18 點）。還沒做的：沒有發佈到 npm；M3 的腳本在 [demo.md](demo.md)，實際操作兩個 agent 與錄影要作者來。
 
 ### 學習方式
 
