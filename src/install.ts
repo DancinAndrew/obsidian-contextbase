@@ -2,13 +2,15 @@
 //
 // `init` only plans by default: every change names the file it touches, and nothing is written
 // until the user agrees. Files that already exist are copied to <file>.before-contextbase once,
-// before the first change. In the user's own files only Contextbase's entries are added or
+// before init first changes them; uninstall makes no copies, because by then the file holds
+// Contextbase's own entries and a copy would not be "before Contextbase". In the user's own files only Contextbase's entries are added or
 // removed: hooks whose command runs this CLI, one permission rule, and in Codex's TOML a block
 // between two marker comments.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
 import { ensureContextbaseDir } from "./config.ts";
+import { localIso } from "./memory.ts";
 import { readHookRuns } from "./state.ts";
 import { Store } from "./store.ts";
 
@@ -202,13 +204,13 @@ export function planUninstall(ctx: InstallContext): Plan {
   if (existsSync(paths.claudeSettings)) {
     changes.push({
       what: `Remove Contextbase's hooks and permission rule from ${paths.claudeSettings}`,
-      apply: () => editJson(paths.claudeSettings, (settings) => removeClaudeEntries(settings, ctx)),
+      apply: () => editJson(paths.claudeSettings, (settings) => removeClaudeEntries(settings, ctx), false),
     });
   }
   if (readText(paths.codexConfig).includes(MARK_BEGIN)) {
     changes.push({
       what: `Remove Contextbase's block from ${paths.codexConfig}`,
-      apply: () => editText(paths.codexConfig, (text) => removeManagedBlock(text)),
+      apply: () => editText(paths.codexConfig, (text) => removeManagedBlock(text), false),
     });
   }
   if (existsSync(paths.codexHooks)) {
@@ -348,7 +350,7 @@ export function doctor(ctx: InstallContext): string[] {
       .map(([, at]) => at)
       .sort()
       .at(-1);
-    mark(Boolean(last), last ? `${client} hooks last ran at ${last}` : `${client} hooks have not run yet`);
+    mark(Boolean(last), last ? `${client} hooks last ran at ${localIso(new Date(last))}` : `${client} hooks have not run yet`);
   }
   return lines;
 }
@@ -412,15 +414,15 @@ function backupOnce(file: string): void {
   if (existsSync(file) && !existsSync(backup)) copyFileSync(file, backup);
 }
 
-function editJson(file: string, change: (value: Json) => Json): void {
+function editJson(file: string, change: (value: Json) => Json, backup = true): void {
   const value = readJson(file); // throws before anything is touched if the file is broken
-  backupOnce(file);
+  if (backup) backupOnce(file);
   writeJson(file, change(value));
 }
 
-function editText(file: string, change: (text: string) => string): void {
+function editText(file: string, change: (text: string) => string, backup = true): void {
   const text = readText(file);
-  backupOnce(file);
+  if (backup) backupOnce(file);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, change(text));
 }

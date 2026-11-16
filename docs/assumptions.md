@@ -84,7 +84,7 @@ M1、M2 寫完之後，量到的結果與新增的假設：
 | I4 | `fetch` 用實際路徑檢查，vault 裡指向外面的捷徑檔一律拒讀 | 安全：路徑字面上在 vault 裡，不代表檔案在 vault 裡 | — |
 | I5 | session 狀態檔保留 30 天，新 session 開始時刪掉更舊的 | 避免 `.contextbase/sessions/` 無限長大 | 一個常數 |
 | I6 | `init` 寫入的 hooks 逾時都設 15 秒 | 大型 vault 第一次建索引要幾秒；Claude Code 對送出問題的 hook 預設只給 30 秒 | 一個常數 |
-| I7 | `init` 第一次改一個已存在的設定檔之前，先複製成 `<檔名>.before-contextbase`，之後不再覆蓋這份備份 | 讓使用者回得到安裝前的狀態 | — |
+| I7 | `init` 第一次改一個已存在的設定檔之前，先複製成 `<檔名>.before-contextbase`，之後不再覆蓋這份備份；`uninstall` 不做備份（11/16 修正：之前 `uninstall` 會替 `init` 新建的檔案做一份內容其實已含 Contextbase 設定的「備份」） | 讓使用者回得到安裝前的狀態 | — |
 | I8 | `Agent Memory/` 裡 `type` 不是 decision、progress、fact 的筆記，當一般筆記索引 | 使用者可能在那裡放自己的說明筆記 | — |
 | I9 | 除錯用的 `CONTEXTBASE_PROBE_LOG` 留在正式版：設了才記錄 MCP 的往來，另設 `CONTEXTBASE_PROBE_REDACT=1` 時不記工具參數的內容 | 之後排查 client 的行為還用得到 | 移除 |
 | I10 | `recent` 工具在 vault 根目錄時最多列 10 個主題、輸出上限 6,000 字元；開工注入維持 1,500 字元 | `recent` 是 agent 主動要的，可以給多一點 | 常數 |

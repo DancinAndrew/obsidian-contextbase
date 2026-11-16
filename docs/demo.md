@@ -27,6 +27,8 @@ scripts/demo-setup.sh ~/contextbase-demo
 
 它把 repo 裡的假 vault（京都行程、課程、生活筆記）複製過去，但不含任何 agent 記憶，示範從零開始。
 
+假 vault 為了測試排名，已經寫好第一個決定的結果（第二天改去宇治，理由寫在 11/09 的日記）。示範用的副本會改回決定之前的行程：第二天嵐山、第四天宇治，並刪掉日記裡那一句。這樣 Codex 改的是新東西，「為什麼改」也只存在 Codex 的記憶裡，Claude Code 答得出來，就證明它取回了記憶。
+
 ## 2. 只在示範 vault 安裝
 
 ```bash
@@ -50,19 +52,21 @@ cd ~/contextbase-demo && codex
 
 1. 在示範 vault 開 Codex，輸入：
 
-   > 第二天只有半天，嵐山太趕。我決定第二天改去宇治，嵐山移到第四天。幫我把「京都 2026 行程」的交通段落改好。
+   > 第二天只有半天，嵐山太趕。我決定第二天改去宇治，嵐山移到第四天。幫我改好「京都 2026 行程」，包括交通段落。
 
 2. 預期：
-   - Codex 改好行程表的交通段落。
+   - Codex 對調行程表的第二天與第四天，並改好交通段落（第二天搭 JR 奈良線到宇治）。
    - Codex 自己呼叫 `save`；如果沒有，收工時 hook 會擋一次提醒它，它接著存。
    - `Agent Memory/<年-月>/` 出現一篇 `type: decision`、`decided_by: user`、`agent: "codex"` 的筆記。
 3. 開一個新的 Claude Code session，用示範 vault 當工作資料夾，輸入：
 
-   > 第二天的交通怎麼排？
+   > 第二天為什麼不去嵐山了？
 
 4. 預期：
-   - 回答前，第一句話的 hook 注入 `[Contextbase] Memories related to this request:`，帶出 Codex 剛記下的決定。
-   - 回答提到「第二天去宇治、搭 JR 奈良線」，而不是舊的嵐山安排。
+   - 回答前，第一句話的 hook 注入 `[Contextbase] Memories related to this request:`，帶出 Codex 剛記下的決定。注入只有記憶的摘要和路徑。
+   - Claude Code 用 `fetch`（或直接讀檔）打開那篇記憶，看到內文寫的理由。畫面上這個工具呼叫，就是「取回另一個 agent 的記憶」最清楚的一幕。
+   - 回答說出理由：第二天只有半天，嵐山太趕。行程表只看得到新的安排，看不到理由；理由只在 Codex 的記憶裡。
+   - 如果 Codex 改行程時順手把理由也寫進了行程表，就改指向注入的記憶和記憶筆記的 `agent: "codex"`。
 
 ## 4. 方向二：Claude Code 記下，Codex 找回
 
@@ -73,9 +77,9 @@ cd ~/contextbase-demo && codex
 2. 預期：Claude Code 存下一則記憶（決定或進度），`agent: "claude-code"`。
 3. 開一個新的 Codex session，輸入：
 
-   > 第三天晚上的安排是什麼？
+   > 第三天晚上的安排是什麼？訂好了嗎？
 
-4. 預期：開工注入的近況，或第一句話的注入，帶出「祇園京料理、晚上七點」，Codex 的回答引用它。
+4. 預期：開工注入的近況，或第一句話的注入，帶出「祇園京料理、晚上七點、已訂好」，Codex 的回答引用它。餐廳清單只寫「候選有兩家、要提前兩週預約」，「七點」和「已訂好」只在 Claude Code 的記憶裡。
 
 ## 5. 收尾畫面
 
@@ -95,6 +99,7 @@ cd ~/contextbase-demo && codex
 | --- | --- | --- |
 | Codex 改完檔沒有存 | hooks 沒有被信任，收工提醒沒跑 | `contextbase doctor` 看 Codex hooks 是否信任；在 Codex 執行 `/hooks` |
 | Claude Code 沒有注入記憶 | session 不是從示範 vault 開的 | 確認工作資料夾是示範 vault 的根目錄 |
+| Claude Code 只說行程改了，沒說理由 | 注入只帶記憶的摘要，理由在記憶的內文 | 追問「理由是什麼？」，它會打開那篇記憶 |
 | `save` 回覆「Not saved: about must name notes」 | agent 把 `about` 填成資料夾 | 這是預期的保護；agent 會照建議的筆記名稱再存一次 |
 | `save` 回覆「Not saved yet: these memories look similar」 | 已有相近的記憶 | 預期行為：agent 選擇取代、照樣新增或放棄 |
 

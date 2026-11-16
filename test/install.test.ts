@@ -137,7 +137,20 @@ test("doctor reports what is installed, what is not trusted yet and whether hook
   assert.match(report, /✗ claude hooks have not run yet/);
   runHook("session-start", { session_id: "d", source: "startup", cwd: vault }, { vault, client: "claude" });
   report = doctor(ctx).join("\n");
-  assert.match(report, /✓ claude hooks last ran at/);
+  assert.match(report, /✓ claude hooks last ran at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/m, "local time with its offset");
+});
+
+test("uninstall makes no backups, so a .before-contextbase file always holds what was there before init", () => {
+  const { vault, ctx } = setup("vault");
+  applyAll(planInstall(ctx));
+  const created = [".claude/settings.local.json", ".codex/config.toml", ".codex/hooks.json"];
+  for (const path of created) {
+    assert.ok(!existsSync(join(vault, `${path}.before-contextbase`)), `init created ${path}, so there was nothing to back up`);
+  }
+  applyAll(planUninstall(ctx));
+  for (const path of created) {
+    assert.ok(!existsSync(join(vault, `${path}.before-contextbase`)), `uninstall made no copy of ${path}`);
+  }
 });
 
 test("a node on PATH that is the same program wins over a versioned path", () => {
