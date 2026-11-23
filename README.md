@@ -1,8 +1,57 @@
 # Obsidian Contextbase
 
-> Shared memory for your AI agents, kept as notes in your Obsidian vault. Claude Code, Codex and other MCP clients pick up each other's decisions without hand-written handoff documents.
+*An agent context system: shared memory for AI agents, kept as notes in your Obsidian vault.*
 
-**Status (November 2026):** the index, the four MCP tools, the three hooks and the installer work and are covered by tests (`npm test`, 52 tests). The package is not on npm yet, and the two-way demo with real agents (milestone M3) has not been recorded. The design is in [docs/plan.md](docs/plan.md), measurements in [docs/evaluation.md](docs/evaluation.md) and [docs/m0-findings.md](docs/m0-findings.md), prior art in [docs/related-work.md](docs/related-work.md) (all in Traditional Chinese).
+![Terminal: two decisions saved through the MCP save tool, the second replacing the first; a search then ranks the current decision first and marks the old one as replaced](docs/images/save-and-search.png)
+
+*Real output on the repository's fake demo vault (a Kyoto trip plan; note text is Chinese). An MCP client saves a decision, then a newer decision that replaces it. `contextbase search` puts the current decision first, above matching notes, and pushes the replaced one down with a REPLACED mark.*
+
+**Claude Code, Codex and other AI agents pick up each other's decisions without hand-written handoff documents.** Contextbase is an MCP server (MCP, the Model Context Protocol, is the standard way agents call outside tools) plus session hooks. Agents save decisions and progress as ordinary Markdown notes in your vault, and any agent can find them again in a later session.
+
+## What it does
+
+- **One memory for several agents.** A decision Codex records can be retrieved by Claude Code in a new session, and the other way round.
+- **Memories are plain notes.** Each memory is a Markdown note linked to the notes it is about, so you can read, edit or delete it in Obsidian.
+- **Search that handles Chinese.** A SQLite FTS5 index with BM25 ranking covers your notes and the memories; Chinese, Japanese and Korean text is split into character pairs (bigrams), since these languages do not put spaces between words.
+- **Ranking that knows about decisions.** Results are weighted by who decided (the user over an agent), recency and folder proximity, and a replaced decision is marked and sinks.
+- **Reading and writing happen without being asked.** Hooks inject a digest of recent work when a session starts, pull related memories into the first prompt, and remind the agent to save after a turn that changed files.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    CC["Claude Code"] <--> S
+    CX["Codex"] <--> S
+    subgraph S["Contextbase (Node.js, local)"]
+        T["MCP server<br/>search · fetch · save · recent"]
+        K["Session hooks<br/>session start · first prompt · end of turn"]
+    end
+    T <--> I["SQLite FTS5 index<br/>BM25, CJK bigrams<br/>rank: who decided, recency,<br/>folder proximity, replaced"]
+    K --> I
+    I <-->|incremental update<br/>before each query| V["Obsidian vault<br/>your notes + Agent Memory/ notes"]
+    T -->|save writes a note| V
+```
+
+Everything runs on your machine; no language model rewrites your notes and Contextbase makes no network requests.
+
+## Status and limitations
+
+- **Working:** the index, the four MCP tools, the three hooks and the installer, all covered by tests that pass in CI on Node.js 22, 24 and 26 ([workflow](.github/workflows/ci.yml)).
+- **Not yet done:** the two-way demo with real agents (milestone M3, [script](docs/demo.md)) has not been recorded; the screenshot above uses a scripted MCP client on the fake vault, not a recorded agent session. The package is not on npm yet, and the lowest Node version claimed (22.13.0) has not been tried.
+- **Retrieval is keyword-based.** BM25 finds words, not meaning; a larger retrieval evaluation and hybrid search are on the roadmap.
+- The design is in [docs/plan.md](docs/plan.md), measurements in [docs/evaluation.md](docs/evaluation.md) and [docs/m0-findings.md](docs/m0-findings.md), prior art in [docs/related-work.md](docs/related-work.md) (all in Traditional Chinese).
+
+## Quick start on the demo vault
+
+After [installing from source](#install-from-source-for-now), try it on a copy of the fake vault in `fixtures/vault` without touching your own notes:
+
+```bash
+scripts/demo-setup.sh ~/contextbase-demo        # copy of the fake vault, no memories yet
+contextbase search 嵐山 --vault ~/contextbase-demo
+contextbase init --vault ~/contextbase-demo     # prints the changes; add --yes to apply
+```
+
+The full two-agent walkthrough is in [docs/demo.md](docs/demo.md) (Traditional Chinese).
 
 ## The problem
 
